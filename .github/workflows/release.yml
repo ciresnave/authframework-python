@@ -1,0 +1,110 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+    
+    - name: Set up Python
+      run: uv python install ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: uv sync --all-extras
+    
+    - name: Run tests
+      run: uv run pytest --cov=authframework
+    
+    - name: Lint
+      run: |
+        uv run flake8 src tests
+        uv run black --check src tests
+        uv run isort --check-only src tests
+        uv run mypy src
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        version: "latest"
+    
+    - name: Set up Python
+      run: uv python install ${{ env.PYTHON_VERSION }}
+    
+    - name: Install dependencies
+      run: uv sync
+    
+    - name: Build package
+      run: uv build
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: dist
+        path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write  # For trusted publishing to PyPI
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: dist
+        path: dist/
+    
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        packages_dir: dist/
+    
+  create_release:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Create GitHub Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        body: |
+          ## What's Changed
+          
+          See [CHANGELOG.md](https://github.com/authframework/authframework-python/blob/main/CHANGELOG.md) for detailed changes.
+          
+          ## Installation
+          
+          ```bash
+          pip install authframework==${{ github.ref_name }}
+          ```
+        draft: false
+        prerelease: false
